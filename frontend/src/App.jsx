@@ -134,23 +134,25 @@ function OutfitCard({ outfit, index, saved, onSave }) {
         <SwatchStrip items={outfit.items} />
       )}
 
-      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
         {outfit.items.map((it, i) => (
-          <li key={i} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13.5, flexWrap: "wrap" }}>
-            <span style={{
-              width: 13, height: 13, borderRadius: "50%", background: it.color_hex,
-              border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0,
-            }} />
-            <span style={{ fontSize: 15 }}>{iconFor(it.type)}</span>
-            <span style={{ flex: 1 }}>{it.name}</span>
-            <span style={{ display: "flex", gap: 5 }}>
+          <li key={i} style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 13.5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{
+                width: 13, height: 13, borderRadius: "50%", background: it.color_hex,
+                border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0,
+              }} />
+              <span style={{ fontSize: 15, flexShrink: 0 }}>{iconFor(it.type)}</span>
+              <span style={{ lineHeight: 1.45 }}>{it.name}</span>
+            </div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingLeft: 44 }}>
               {SHOPS.map((s) => (
                 <a key={s.label} className="shop" href={s.url(it.name)} target="_blank" rel="noopener noreferrer"
                   title={`Search "${it.name}" on ${s.label}`}>
                   {s.label} ↗
                 </a>
               ))}
-            </span>
+            </div>
           </li>
         ))}
       </ul>
@@ -252,7 +254,8 @@ export default function App() {
       "--shadow-lift": dark ? "0 14px 30px rgba(0,0,0,0.45)" : "0 14px 30px rgba(28,24,38,0.12)",
     }}>
       <style>{`
-        .ootd * { box-sizing: border-box; }
+        .ootd * { box-sizing: border-box; min-width: 0; }
+        .ootd { overflow-x: clip; }
         @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
         @keyframes blink { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
         .ootd .eyebrow { font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--gray); font-weight: 500; }
@@ -314,6 +317,14 @@ export default function App() {
         .ootd textarea:focus-visible, .ootd a:focus-visible, .ootd summary:focus-visible {
           outline: 2px solid var(--violet); outline-offset: 2px;
         }
+        .ootd .mainnav { gap: 18px; }
+        @media (max-width: 640px) {
+          .ootd .tagline { display: none; }
+          .ootd .masthead { padding: 13px 16px; }
+          .ootd .mainnav { gap: 10px; }
+          .ootd .navlink { font-size: 12.5px; }
+          .ootd .card { padding: 16px; }
+        }
         @media (prefers-reduced-motion: reduce) {
           .ootd * { animation: none !important; transition: none !important; }
           .ootd .card:hover { transform: none; }
@@ -323,15 +334,15 @@ export default function App() {
       <input ref={photoInputRef} type="file" accept="image/*" capture="user" onChange={onPhotoPicked} style={{ display: "none" }} />
 
       {/* Masthead */}
-      <header style={{
+      <header className="masthead" style={{
         background: T.paper, borderBottom: `1px solid ${T.line}`, padding: "16px clamp(20px, 5vw, 48px)",
-        display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 5,
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, position: "sticky", top: 0, zIndex: 5,
       }}>
         <div onClick={() => setView("home")} style={{ cursor: "pointer", display: "flex", alignItems: "baseline", gap: 12 }}>
           <span style={{ fontFamily: display, fontWeight: 600, fontSize: 25, letterSpacing: "0.12em" }}>OOTD</span>
-          <span className="eyebrow" style={{ display: window.innerWidth < 480 ? "none" : "inline" }}>Your AI stylist</span>
+          <span className="eyebrow tagline">Your AI stylist</span>
         </div>
-        <nav style={{ display: "flex", gap: 18, alignItems: "center" }}>
+        <nav className="mainnav" style={{ display: "flex", alignItems: "center" }}>
           <button className={view !== "lookbook" ? "navlink navlink--on" : "navlink"} onClick={() => setView(chat.length ? "chat" : "home")}>
             Stylist
           </button>
@@ -446,10 +457,10 @@ export default function App() {
             ) : (
               <section key={i} style={{ margin: "18px 0 34px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                  <span className="eyebrow" style={{ whiteSpace: "nowrap" }}>
+                  <span className="eyebrow" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     OOTD Stylist{m.weatherUsed ? ` · dressing for ${m.weatherUsed}` : ""}
                   </span>
-                  <span style={{ flex: 1, height: 1, background: T.line }} />
+                  <span style={{ flex: 1, minWidth: 24, height: 1, background: T.line }} />
                 </div>
                 <p style={{ fontFamily: display, fontStyle: "italic", fontWeight: 450, fontSize: 18, lineHeight: 1.5, margin: "0 0 18px", maxWidth: 640 }}>
                   {m.text}
