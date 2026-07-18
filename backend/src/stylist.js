@@ -67,7 +67,7 @@ async function callGemini(history, userContent) {
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents,
       generationConfig: {
-        maxOutputTokens: 2000,
+        maxOutputTokens: 8192,
         responseMimeType: "application/json", // ask Gemini for pure JSON
       },
     }),
@@ -115,6 +115,20 @@ async function callClaude(history, userContent) {
     .join("\n");
 }
 
+/* ---------- JSON salvage ----------
+   LLM output is usually clean JSON, but can arrive with markdown fences,
+   preamble text, or trailing commas. Extract the outermost {...} and tidy it. */
+
+function extractJson(text) {
+  let t = (text || "").replace(/```json|```/g, "").trim();
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start !== -1 && end > start) t = t.slice(start, end + 1);
+  // remove trailing commas before } or ] (common LLM glitch)
+  t = t.replace(/,\s*([}\]])/g, "$1");
+  return t;
+}
+
 /* ---------- Public API ---------- */
 
 export function activeProvider() {
@@ -139,7 +153,7 @@ export async function getOutfits(params) {
 
   const call = provider === "gemini" ? callGemini : callClaude;
   const text = await call(history, userContent);
-  const clean = text.replace(/```json|```/g, "").trim();
+  const clean = extractJson(text);
 
   let parsed;
   try {
@@ -150,7 +164,7 @@ export async function getOutfits(params) {
       [],
       `Fix the following into valid JSON matching the intended structure. Respond with ONLY the JSON, nothing else:\n\n${clean}`
     );
-    parsed = JSON.parse(repaired.replace(/```json|```/g, "").trim());
+    parsed = JSON.parse(extractJson(repaired));
   }
 
   return { ...parsed, _raw: clean, _userContent: userContent };
