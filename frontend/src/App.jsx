@@ -317,6 +317,14 @@ export default function App() {
         .ootd textarea:focus-visible, .ootd a:focus-visible, .ootd summary:focus-visible {
           outline: 2px solid var(--violet); outline-offset: 2px;
         }
+        .ootd .scroller {
+          display: flex; gap: 6px; align-items: center;
+          overflow-x: auto; padding-bottom: 8px;
+          scrollbar-width: none; -webkit-overflow-scrolling: touch;
+        }
+        .ootd .scroller::-webkit-scrollbar { display: none; }
+        .ootd .scroller > * { flex: 0 0 auto; }
+        .ootd .scroller .chip { white-space: nowrap; }
         .ootd .mainnav { gap: 18px; }
         @media (max-width: 640px) {
           .ootd .tagline { display: none; }
@@ -501,10 +509,10 @@ export default function App() {
             padding: "10px clamp(16px, 4vw, 40px) 16px",
           }}>
             <div style={{ maxWidth: 980, margin: "0 auto" }}>
-              <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, alignItems: "center" }}>
+              <div className="scroller">
                 <PhotoControl compact photo={photo} onPick={() => photoInputRef.current?.click()} onRemove={() => setPhoto(null)} />
                 {REFINE.map((r) => (
-                  <button key={r} className="chip" onClick={() => send(r)} disabled={loading || !chat.length} style={{ whiteSpace: "nowrap" }}>
+                  <button key={r} className="chip" onClick={() => send(r)} disabled={loading || !chat.length}>
                     {r}
                   </button>
                 ))}
