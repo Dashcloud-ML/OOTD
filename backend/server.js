@@ -12,7 +12,7 @@ import { getWeather } from "./src/weather.js";
 
 const app = express();
 app.use(cors()); // for production, restrict: cors({ origin: "https://your-frontend.vercel.app" })
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // room for base64 photos
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "OOTD backend", provider: activeProvider() });
@@ -20,7 +20,7 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/style", async (req, res) => {
   try {
-    const { message, gender, budget, weather, city, wardrobe, history } = req.body || {};
+    const { message, gender, budget, weather, city, wardrobe, history, photo } = req.body || {};
 
     if (!message || typeof message !== "string" || !message.trim()) {
       return res.status(400).json({ error: "Field 'message' is required." });
@@ -33,8 +33,15 @@ app.post("/api/style", async (req, res) => {
     const liveWeather = await getWeather(city);
     const effectiveWeather = liveWeather || weather;
 
+    // Photo is optional: must be a data-URL image, capped in size. Never stored — passed straight to the LLM.
+    const safePhoto =
+      typeof photo === "string" && photo.startsWith("data:image/") && photo.length < 6_000_000
+        ? photo
+        : undefined;
+
     const result = await getOutfits({
       message: message.trim().slice(0, 1000),
+      photo: safePhoto,
       gender,
       budget,
       weather: effectiveWeather,

@@ -10,6 +10,7 @@ Rules:
 - Respect the user's stated gender presentation, budget level, and weather. If the user lists clothes they own ("wardrobe mode"), build outfits ONLY from those items plus basics anyone owns.
 - Never repeat an outfit already suggested in this conversation. On refinement requests ("less formal", "cheaper"), adjust the previous outfits accordingly.
 - Keep the "why" note specific to the occasion, one or two sentences, friendly.
+- If the user attaches a photo of themselves, tailor the outfits to what flatters them (coloring, build, hair, overall vibe) and briefly mention that personalization in "reply". Be warm and positive — never criticize their appearance.
 
 Respond with ONLY valid JSON, no markdown fences, no preamble:
 {
@@ -41,20 +42,31 @@ function buildUserMessage({ message, gender, budget, weather, wardrobe }) {
   return `[Preferences — ${prefs || "none"}]\n${message}`;
 }
 
+/* ---------- Photo handling ---------- */
+
+function parseDataUrl(dataUrl) {
+  const m = /^data:(image\/[a-z0-9+.-]+);base64,(.+)$/i.exec(dataUrl || "");
+  return m ? { mime: m[1], data: m[2] } : null;
+}
+
 /* ---------- Provider: Google Gemini (free tier) ---------- */
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 
-async function callGemini(history, userContent) {
+async function callGemini(history, userContent, photo) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
   // Gemini uses roles "user" and "model" (not "assistant").
+  const img = parseDataUrl(photo);
+  const userParts = [{ text: userContent }];
+  if (img) userParts.push({ inline_data: { mime_type: img.mime, data: img.data } });
+
   const contents = [
     ...history.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     })),
-    { role: "user", parts: [{ text: userContent }] },
+    { role: "user", parts: userParts },
   ];
 
   const res = await fetch(url, {
@@ -87,7 +99,7 @@ async function callGemini(history, userContent) {
 
 const CLAUDE_MODEL = "claude-sonnet-4-6";
 
-async function callClaude(history, userContent) {
+async function callClaude(history, userContent, photo) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -99,7 +111,21 @@ async function callClaude(history, userContent) {
       model: CLAUDE_MODEL,
       max_tokens: 1500,
       system: SYSTEM_PROMPT,
-      messages: [...history, { role: "user", content: userContent }],
+      messages: [
+        ...history,
+        {
+          role: "user",
+          content: (() => {
+            const img = parseDataUrl(photo);
+            return img
+              ? [
+                  { type: "image", source: { type: "base64", media_type: img.mime, data: img.data } },
+                  { type: "text", text: userContent },
+                ]
+              : userContent;
+          })(),
+        },
+      ],
     }),
   });
 
@@ -152,7 +178,7 @@ export async function getOutfits(params) {
   const history = params.history || [];
 
   const call = provider === "gemini" ? callGemini : callClaude;
-  const text = await call(history, userContent);
+  const text = await call(history, userContent, params.photo);
   const clean = extractJson(text);
 
   let parsed;
