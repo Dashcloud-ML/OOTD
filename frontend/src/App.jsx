@@ -339,7 +339,9 @@ export default function App() {
         }
       `}</style>
 
-      <input ref={photoInputRef} type="file" accept="image/*" capture="user" onChange={onPhotoPicked} style={{ display: "none" }} />
+      {/* No "capture" attribute: mobile browsers show the native chooser
+          (Take Photo / Photo Library), giving users both camera and gallery. */}
+      <input ref={photoInputRef} type="file" accept="image/*" onChange={onPhotoPicked} style={{ display: "none" }} />
 
       {/* Masthead */}
       <header className="masthead" style={{
