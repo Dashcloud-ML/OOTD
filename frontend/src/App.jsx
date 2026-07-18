@@ -25,8 +25,8 @@ const T = {
   violet: "var(--violet)", violetSoft: "var(--violetSoft)", gray: "var(--gray)",
 };
 
-const display = "'Fraunces', 'Didot', Georgia, serif";
-const body = "'Inter', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+const display = "'Bodoni Moda', 'Didot', 'Bodoni MT', Georgia, serif";
+const body = "'Outfit', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 const OCCASIONS = ["First date", "Job interview", "Wedding guest", "Casual day out", "Party", "College fest"];
 const REFINE = ["Less formal", "Cheaper options", "Different colors", "Bolder look", "I don't own that"];
@@ -59,6 +59,37 @@ async function fileToDataUrl(file, maxSide = 768) {
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
+// Defined at module level (not inside App) so React keeps them mounted across
+// re-renders — defining components inside a component remounts them on every
+// keystroke, which makes inputs lose focus while typing.
+function Field({ label, hint, children }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 5, textAlign: "left" }}>
+      <span className="eyebrow">{label}</span>
+      {children}
+      {hint && <span style={{ fontSize: 11, color: T.gray }}>{hint}</span>}
+    </label>
+  );
+}
+
+function PhotoControl({ photo, onPick, onRemove, compact }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {photo ? (
+        <>
+          <img src={photo} alt="Your photo" style={{ width: compact ? 28 : 40, height: compact ? 28 : 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${T.line}` }} />
+          {!compact && <span style={{ fontSize: 12.5, color: T.gray }}>Styling for your photo</span>}
+          <button className="chip" onClick={onRemove} aria-label="Remove photo">✕{compact ? "" : " Remove"}</button>
+        </>
+      ) : (
+        <button className="chip" onClick={onPick}>
+          📸 {compact ? "Add photo" : "Add a photo of yourself"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SwatchStrip({ items }) {
   return (
     <div style={{ display: "flex", height: 52, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.line}` }}>
@@ -83,7 +114,7 @@ function OutfitCard({ outfit, index, saved, onSave }) {
         <span className="eyebrow">{outfit.budget}</span>
       </header>
 
-      <h3 style={{ fontFamily: display, fontWeight: 420, fontStyle: "italic", fontSize: 24, lineHeight: 1.15, margin: 0 }}>
+      <h3 style={{ fontFamily: display, fontWeight: 500, fontStyle: "italic", fontSize: 23, lineHeight: 1.15, margin: 0 }}>
         {outfit.name}
       </h3>
 
@@ -127,7 +158,7 @@ function OutfitCard({ outfit, index, saved, onSave }) {
       {/* Stylist's note — pinned to the look with a stitched divider */}
       <div style={{ borderTop: `1px dashed ${T.line}`, paddingTop: 12 }}>
         <span className="eyebrow" style={{ display: "block", marginBottom: 5 }}>Stylist's note</span>
-        <p style={{ fontFamily: display, fontStyle: "italic", fontWeight: 380, fontSize: 14.5, lineHeight: 1.55, color: T.gray, margin: 0 }}>
+        <p style={{ fontFamily: display, fontStyle: "italic", fontWeight: 400, fontSize: 14.5, lineHeight: 1.55, color: T.gray, margin: 0 }}>
           {outfit.why}
         </p>
       </div>
@@ -209,29 +240,6 @@ export default function App() {
   };
   const isSaved = (o) => saved.some((x) => x.name === o.name);
 
-  const PhotoControl = ({ compact }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {photo ? (
-        <>
-          <img src={photo} alt="Your photo" style={{ width: compact ? 28 : 40, height: compact ? 28 : 40, objectFit: "cover", borderRadius: 6, border: `1px solid ${T.line}` }} />
-          {!compact && <span style={{ fontSize: 12.5, color: T.gray }}>Styling for your photo</span>}
-          <button className="chip" onClick={() => setPhoto(null)} aria-label="Remove photo">✕{compact ? "" : " Remove"}</button>
-        </>
-      ) : (
-        <button className="chip" onClick={() => photoInputRef.current?.click()}>
-          📸 {compact ? "Add photo" : "Add a photo of yourself"}
-        </button>
-      )}
-    </div>
-  );
-
-  const Field = ({ label, children }) => (
-    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span className="eyebrow">{label}</span>
-      {children}
-    </label>
-  );
-
   return (
     <div className="ootd" style={{
       minHeight: "100vh", background: T.soft, color: T.ink, fontFamily: body,
@@ -247,7 +255,7 @@ export default function App() {
         .ootd * { box-sizing: border-box; }
         @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
         @keyframes blink { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
-        .ootd .eyebrow { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--gray); font-weight: 500; }
+        .ootd .eyebrow { font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--gray); font-weight: 500; }
         .ootd .card {
           background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 20px;
           box-shadow: var(--shadow); animation: rise .4s ease both;
@@ -320,7 +328,7 @@ export default function App() {
         display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 5,
       }}>
         <div onClick={() => setView("home")} style={{ cursor: "pointer", display: "flex", alignItems: "baseline", gap: 12 }}>
-          <span style={{ fontFamily: display, fontWeight: 560, fontSize: 26, letterSpacing: "0.14em" }}>OOTD</span>
+          <span style={{ fontFamily: display, fontWeight: 600, fontSize: 25, letterSpacing: "0.12em" }}>OOTD</span>
           <span className="eyebrow" style={{ display: window.innerWidth < 480 ? "none" : "inline" }}>Your AI stylist</span>
         </div>
         <nav style={{ display: "flex", gap: 18, alignItems: "center" }}>
@@ -342,11 +350,11 @@ export default function App() {
         <main style={{ maxWidth: 880, margin: "0 auto", padding: "clamp(40px, 8vh, 84px) clamp(20px, 5vw, 48px) 90px", textAlign: "center" }}>
           <p className="eyebrow" style={{ margin: "0 0 18px" }}>Personal styling, in seconds</p>
           <h1 style={{
-            fontFamily: display, fontWeight: 380, fontSize: "clamp(40px, 7vw, 74px)",
+            fontFamily: display, fontWeight: 470, fontSize: "clamp(40px, 7vw, 74px)",
             lineHeight: 1.02, letterSpacing: "-0.015em", margin: 0,
           }}>
             Never wonder<br />
-            <em style={{ color: T.violet, fontWeight: 420 }}>what to wear</em> again.
+            <em style={{ color: T.violet, fontWeight: 500 }}>what to wear</em> again.
           </h1>
           <p style={{ color: T.gray, fontSize: 15.5, margin: "22px auto 0", maxWidth: 480, lineHeight: 1.65 }}>
             Tell OOTD where you're going. It returns three complete looks — every piece chosen for the occasion, the weather, and you.
@@ -392,16 +400,19 @@ export default function App() {
                   {["Hot", "Mild", "Cold", "Rainy"].map((o) => <option key={o}>{o}</option>)}
                 </select>
               </Field>
-              <Field label="City (live weather)">
-                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Optional" />
-              </Field>
             </div>
 
             <hr style={{ border: 0, borderTop: `1px solid ${T.line}`, margin: "20px 0" }} />
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <PhotoControl />
-              <span style={{ fontSize: 11.5, color: T.gray }}>Used only to personalize — never stored.</span>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, alignItems: "start" }}>
+              <Field label="Live weather" hint="Enter your city and OOTD uses real weather instead of the Weather setting.">
+                <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Mumbai" />
+              </Field>
+              <Field label="Your photo" hint="Used only to personalize — never stored.">
+                <div style={{ paddingTop: 2 }}>
+                  <PhotoControl photo={photo} onPick={() => photoInputRef.current?.click()} onRemove={() => setPhoto(null)} />
+                </div>
+              </Field>
             </div>
 
             <details style={{ marginTop: 20 }}>
@@ -440,7 +451,7 @@ export default function App() {
                   </span>
                   <span style={{ flex: 1, height: 1, background: T.line }} />
                 </div>
-                <p style={{ fontFamily: display, fontStyle: "italic", fontWeight: 400, fontSize: 17.5, lineHeight: 1.5, margin: "0 0 18px", maxWidth: 640 }}>
+                <p style={{ fontFamily: display, fontStyle: "italic", fontWeight: 450, fontSize: 18, lineHeight: 1.5, margin: "0 0 18px", maxWidth: 640 }}>
                   {m.text}
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 16 }}>
@@ -480,7 +491,7 @@ export default function App() {
           }}>
             <div style={{ maxWidth: 980, margin: "0 auto" }}>
               <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, alignItems: "center" }}>
-                <PhotoControl compact />
+                <PhotoControl compact photo={photo} onPick={() => photoInputRef.current?.click()} onRemove={() => setPhoto(null)} />
                 {REFINE.map((r) => (
                   <button key={r} className="chip" onClick={() => send(r)} disabled={loading || !chat.length} style={{ whiteSpace: "nowrap" }}>
                     {r}
