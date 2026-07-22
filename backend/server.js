@@ -9,13 +9,17 @@ import cors from "cors";
 import { getOutfits, activeProvider } from "./src/stylist.js";
 import { attachImages } from "./src/images.js";
 import { getWeather } from "./src/weather.js";
+import {
+  lookbookConfigured, listLookbook, addLookbookItem, removeLookbookItem,
+  getWardrobeProfile, saveWardrobeProfile,
+} from "./src/db.js";
 
 const app = express();
 app.use(cors()); // for production, restrict: cors({ origin: "https://your-frontend.vercel.app" })
 app.use(express.json({ limit: "10mb" })); // room for base64 photos
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "OOTD backend", provider: activeProvider() });
+  res.json({ ok: true, service: "OOTD backend", provider: activeProvider(), db: lookbookConfigured() });
 });
 
 app.post("/api/style", async (req, res) => {
@@ -67,6 +71,77 @@ app.post("/api/style", async (req, res) => {
   } catch (err) {
     console.error("style error:", err.message);
     res.status(502).json({ error: "The stylist couldn't process that request. Please try again." });
+  }
+});
+
+/* ---------- Lookbook & wardrobe: optional Supabase persistence ----------
+   If SUPABASE_URL/SUPABASE_SERVICE_KEY aren't set, GET routes return
+   configured:false so the frontend falls back to in-memory only — nothing
+   breaks for anyone who hasn't set up Supabase yet. */
+
+app.get("/api/lookbook", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (!lookbookConfigured()) return res.json({ items: [], configured: false });
+    const items = await listLookbook(userId);
+    res.json({ items, configured: true });
+  } catch (err) {
+    console.error("lookbook list error:", err.message);
+    res.status(502).json({ error: "Couldn't load your Lookbook right now." });
+  }
+});
+
+app.post("/api/lookbook", async (req, res) => {
+  try {
+    const { userId, outfit } = req.body || {};
+    if (!userId || !outfit) return res.status(400).json({ error: "userId and outfit are required." });
+    if (!lookbookConfigured()) return res.status(503).json({ error: "Lookbook sync isn't set up yet." });
+    const item = await addLookbookItem(userId, outfit);
+    res.json({ item });
+  } catch (err) {
+    console.error("lookbook save error:", err.message);
+    res.status(502).json({ error: "Couldn't save that look right now." });
+  }
+});
+
+app.delete("/api/lookbook/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (!lookbookConfigured()) return res.status(503).json({ error: "Lookbook sync isn't set up yet." });
+    await removeLookbookItem(userId, id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("lookbook delete error:", err.message);
+    res.status(502).json({ error: "Couldn't remove that look right now." });
+  }
+});
+
+app.get("/api/wardrobe", async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (!lookbookConfigured()) return res.json({ wardrobe: "", configured: false });
+    const wardrobe = await getWardrobeProfile(userId);
+    res.json({ wardrobe, configured: true });
+  } catch (err) {
+    console.error("wardrobe get error:", err.message);
+    res.status(502).json({ error: "Couldn't load your wardrobe." });
+  }
+});
+
+app.post("/api/wardrobe", async (req, res) => {
+  try {
+    const { userId, wardrobe } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId is required." });
+    if (!lookbookConfigured()) return res.status(503).json({ error: "Wardrobe sync isn't set up yet." });
+    await saveWardrobeProfile(userId, wardrobe || "");
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("wardrobe save error:", err.message);
+    res.status(502).json({ error: "Couldn't save your wardrobe." });
   }
 });
 

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { requestOutfits } from "./api.js";
+import {
+  requestOutfits, fetchLookbook, saveToLookbook, removeFromLookbook, fetchWardrobe, saveWardrobe,
+} from "./api.js";
 
 /* ─── OOTD — visual direction ───
    The fitting room, not a template: Fraunces serif with fashion character,
@@ -180,6 +182,19 @@ function OutfitCard({ outfit, index, saved, onSave }) {
   );
 }
 
+// A stable anonymous identity for this browser, so the Lookbook and wardrobe
+// can sync to Supabase without requiring a login. Clearing site data or
+// switching browsers starts a fresh identity — real accounts are a later upgrade.
+function getUserId() {
+  const KEY = "ootd_uid";
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id = (crypto.randomUUID && crypto.randomUUID()) || `uid-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
 export default function App() {
   const [view, setView] = useState("home"); // home | chat | lookbook
   const [dark, setDark] = useState(false);
@@ -198,8 +213,33 @@ export default function App() {
   const [photo, setPhoto] = useState(null); // data-URL of the user's photo (optional)
   const photoInputRef = useRef(null);
   const bottomRef = useRef(null);
+  const userId = useRef(getUserId()).current;
+  const [dbConfigured, setDbConfigured] = useState(null); // null = not checked yet, then true/false
+  const [syncError, setSyncError] = useState(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, loading]);
+
+  // Load any previously saved outfits and wardrobe once, on first mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { items, configured } = await fetchLookbook(userId);
+        setDbConfigured(configured);
+        if (configured) setSaved(items.map((r) => ({ id: r.id, outfit: r.outfit })));
+      } catch {
+        setDbConfigured(false);
+        setSyncError("Lookbook sync is offline right now — saves will only last this session.");
+      }
+    })();
+    (async () => {
+      try {
+        const { wardrobe: w, configured } = await fetchWardrobe(userId);
+        if (configured && w) setWardrobe(w);
+      } catch {
+        // Wardrobe sync is a quiet nice-to-have — fail silently, keep typing locally.
+      }
+    })();
+  }, []);
 
   const onPhotoPicked = async (e) => {
     const file = e.target.files?.[0];
@@ -235,12 +275,29 @@ export default function App() {
     }
   };
 
-  const toggleSave = (outfit) => {
-    setSaved((s) => (s.some((o) => o.name === outfit.name)
-      ? s.filter((o) => o.name !== outfit.name)
-      : [...s, outfit]));
+  const toggleSave = async (outfit) => {
+    const existing = saved.find((s) => s.outfit.name === outfit.name);
+    if (existing) {
+      setSaved((s) => s.filter((x) => x !== existing)); // optimistic
+      if (existing.id) {
+        try {
+          await removeFromLookbook(userId, existing.id);
+        } catch {
+          setSyncError("Couldn't sync that removal — it may reappear next visit.");
+        }
+      }
+    } else {
+      const temp = { id: null, outfit };
+      setSaved((s) => [...s, temp]); // optimistic
+      try {
+        const { item } = await saveToLookbook(userId, outfit);
+        setSaved((s) => s.map((x) => (x === temp ? { id: item.id, outfit: item.outfit } : x)));
+      } catch {
+        setSyncError("Lookbook sync is offline — this save will only last this session.");
+      }
+    }
   };
-  const isSaved = (o) => saved.some((x) => x.name === o.name);
+  const isSaved = (o) => saved.some((s) => s.outfit.name === o.name);
 
   return (
     <div className="ootd" style={{
@@ -441,6 +498,7 @@ export default function App() {
               <textarea
                 value={wardrobe}
                 onChange={(e) => setWardrobe(e.target.value)}
+                onBlur={() => saveWardrobe(userId, wardrobe).catch(() => {})}
                 placeholder="e.g. blue denim jacket, white sneakers, black jeans, grey hoodie…"
                 rows={3}
                 style={{ width: "100%", marginTop: 10 }}
@@ -538,8 +596,15 @@ export default function App() {
       {/* LOOKBOOK */}
       {view === "lookbook" && (
         <main style={{ maxWidth: 980, margin: "0 auto", padding: "44px clamp(16px, 4vw, 40px) 90px" }}>
-          <p className="eyebrow" style={{ margin: "0 0 10px" }}>Saved this session</p>
-          <h2 style={{ fontFamily: display, fontWeight: 400, fontSize: 38, margin: "0 0 26px" }}>My Lookbook</h2>
+          <p className="eyebrow" style={{ margin: "0 0 10px" }}>Your saved looks</p>
+          <h2 style={{ fontFamily: display, fontWeight: 400, fontSize: 38, margin: "0 0 10px" }}>My Lookbook</h2>
+          <p style={{ fontSize: 12.5, color: syncError ? (dark ? "#F2A9B4" : "#8C2B2B") : T.gray, margin: "0 0 26px" }}>
+            {syncError
+              ? syncError
+              : dbConfigured === false
+              ? "Connect Supabase in the backend to keep these across visits — see README."
+              : "Synced — these will still be here next time you visit."}
+          </p>
           {saved.length === 0 ? (
             <div style={{ background: T.paper, border: `1px dashed ${T.line}`, borderRadius: 10, padding: 48, textAlign: "center" }}>
               <p style={{ fontFamily: display, fontStyle: "italic", fontSize: 18, margin: "0 0 6px" }}>Nothing on the rack yet.</p>
@@ -547,8 +612,8 @@ export default function App() {
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 16 }}>
-              {saved.map((o, i) => (
-                <OutfitCard key={i} outfit={o} index={i} saved onSave={() => toggleSave(o)} />
+              {saved.map((s, i) => (
+                <OutfitCard key={s.id ?? i} outfit={s.outfit} index={i} saved onSave={() => toggleSave(s.outfit)} />
               ))}
             </div>
           )}
