@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   requestOutfits, fetchLookbook, saveToLookbook, removeFromLookbook, fetchWardrobe, saveWardrobe,
 } from "./api.js";
+import { shareOrDownloadOutfit } from "./shareCard.js";
 
 /* ─── OOTD — visual direction ───
    The fitting room, not a template: Fraunces serif with fashion character,
@@ -107,6 +108,22 @@ function SwatchStrip({ items }) {
 }
 
 function OutfitCard({ outfit, index, saved, onSave }) {
+  const [sharing, setSharing] = useState(false);
+  const [shareMsg, setShareMsg] = useState(null);
+
+  const handleShare = async () => {
+    setSharing(true);
+    setShareMsg(null);
+    try {
+      const result = await shareOrDownloadOutfit(outfit);
+      setShareMsg(result === "downloaded" ? "Saved to your downloads — post it anywhere." : null);
+    } catch {
+      setShareMsg("Couldn't create that image — try again.");
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
     <article className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -167,17 +184,25 @@ function OutfitCard({ outfit, index, saved, onSave }) {
         </p>
       </div>
 
-      <footer style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {(outfit.tags || []).map((t, i) => (
-            <span key={i} className="eyebrow" style={{ padding: "4px 9px", background: T.soft, borderRadius: 4 }}>{t}</span>
-          ))}
+      <footer style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {outfit.tags && outfit.tags.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {outfit.tags.map((t, i) => (
+              <span key={i} className="eyebrow" style={{ padding: "4px 9px", background: T.soft, borderRadius: 4, whiteSpace: "nowrap" }}>{t}</span>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="chip" onClick={handleShare} disabled={sharing} style={{ flex: 1, textAlign: "center" }} title="Share this look as an image">
+            {sharing ? "Creating…" : "↗ Share"}
+          </button>
+          <button className={saved ? "chip chip--on" : "chip"} onClick={onSave} style={{ flex: 1, textAlign: "center" }}
+            aria-label={saved ? "Remove from lookbook" : "Save to lookbook"}>
+            {saved ? "♥ Saved" : "♡ Save"}
+          </button>
         </div>
-        <button className={saved ? "chip chip--on" : "chip"} onClick={onSave}
-          aria-label={saved ? "Remove from lookbook" : "Save to lookbook"}>
-          {saved ? "♥ Saved" : "♡ Save"}
-        </button>
       </footer>
+      {shareMsg && <p style={{ fontSize: 11.5, color: T.gray, margin: 0 }}>{shareMsg}</p>}
     </article>
   );
 }
