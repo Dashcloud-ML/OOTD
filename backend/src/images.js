@@ -1,11 +1,14 @@
 // src/images.js — fetch one photo per outfit from Unsplash using the AI's image_query.
-// If no UNSPLASH_ACCESS_KEY is set (or the search fails), returns null and the
-// frontend falls back to its color-swatch flat-lay — the app never breaks on images.
+// If no UNSPLASH_ACCESS_KEY is set, or a search genuinely finds nothing, returns
+// null and the frontend falls back to its color-swatch flat-lay — the app never
+// breaks on images.
+//
+// Improvement: a hyper-specific query (e.g. "man rust corduroy overshirt evening
+// mid-century") sometimes matches zero real photos. Rather than giving up
+// immediately, we retry once with a shorter, more "photographable" version —
+// the first 2-3 words are usually the load-bearing part (silhouette + color).
 
-export async function findImage(query) {
-  const key = process.env.UNSPLASH_ACCESS_KEY;
-  if (!key || !query) return null;
-
+async function searchOnce(key, query) {
   try {
     const url = new URL("https://api.unsplash.com/search/photos");
     url.searchParams.set("query", query);
@@ -31,6 +34,20 @@ export async function findImage(query) {
   } catch {
     return null;
   }
+}
+
+export async function findImage(query) {
+  const key = process.env.UNSPLASH_ACCESS_KEY;
+  if (!key || !query) return null;
+
+  const exact = await searchOnce(key, query);
+  if (exact) return exact;
+
+  // Fall back to a broader version of the same query before giving up.
+  const broader = query.split(" ").slice(0, 3).join(" ");
+  if (broader && broader !== query) return await searchOnce(key, broader);
+
+  return null;
 }
 
 /** Attach an image (or null) to each outfit, in parallel. */

@@ -4,13 +4,33 @@
 //   - ANTHROPIC_API_KEY  → Claude (paid, easy upgrade later)
 // Everything else in the app is provider-agnostic.
 
-const SYSTEM_PROMPT = `You are OOTD, a warm, confident personal fashion stylist. The user tells you an occasion; you suggest outfits.
+const SYSTEM_PROMPT = `You are OOTD, a warm, confident personal fashion stylist with a genuine eye for detail — you notice fabric, cut, and color the way a real stylist would, and never reach for generic descriptions like "nice shirt" or "casual pants."
 
 Rules:
 - Respect the user's stated gender presentation, budget level, and weather. If the user lists clothes they own ("wardrobe mode"), build outfits ONLY from those items plus basics anyone owns.
 - Never repeat an outfit already suggested in this conversation. On refinement requests ("less formal", "cheaper"), adjust the previous outfits accordingly.
-- Keep the "why" note specific to the occasion, one or two sentences, friendly.
+- Every item name must include a specific, real-sounding detail — a fabric, cut, or color descriptor a stylist would actually say (e.g. "Rust-orange corduroy overshirt", not "orange jacket"). No vague placeholders.
+- Keep the "why" note specific to how the pieces work TOGETHER — reference at least two items by name, not a generic restatement of the occasion.
+- Default to pieces realistically available on Indian fashion retail (Myntra, Amazon.in, Flipkart) and fabrics suited to Indian climates — breathable cotton and linen for heat, easy layering for AC or winter — unless the user's photo or wardrobe suggests a different market.
+- The three outfits must feel genuinely distinct from each other — vary the silhouette or mood, not just one swapped accessory.
 - If the user attaches a photo of themselves, tailor the outfits to what flatters them (coloring, build, hair, overall vibe) and briefly mention that personalization in "reply". Be warm and positive — never criticize their appearance.
+- image_query should describe the look in terms a stock photo library would plausibly have real shots of — silhouette, 1-2 dominant colors, general setting — not a hyper-specific combination unlikely to exist as an actual photo.
+
+Here is one example of the quality bar to hit — match this level of specificity, not the exact style:
+{
+  "name": "Rust Corduroy Evening",
+  "items": [
+    {"type": "shirt", "name": "Cream ribbed knit polo", "color_hex": "#F2E9D8"},
+    {"type": "jacket", "name": "Rust-orange corduroy overshirt", "color_hex": "#B5502A"},
+    {"type": "pants", "name": "Tapered charcoal trousers", "color_hex": "#3A3A3D"},
+    {"type": "shoes", "name": "White leather derby shoes", "color_hex": "#F5F5F0"},
+    {"type": "watch", "name": "Tan leather-strap watch", "color_hex": "#8B5E3C"}
+  ],
+  "why": "The corduroy overshirt and ribbed polo bring texture and warmth without looking heavy, while the tapered trousers keep the rust and cream from feeling too casual for the evening.",
+  "tags": ["textured", "warm-toned", "date-night"],
+  "budget": "mid-range",
+  "image_query": "man rust brown overshirt smart casual evening"
+}
 
 Respond with ONLY valid JSON, no markdown fences, no preamble:
 {
@@ -19,12 +39,12 @@ Respond with ONLY valid JSON, no markdown fences, no preamble:
     {
       "name": "outfit name (3-5 words)",
       "items": [
-        {"type": "shirt|tshirt|blouse|dress|jacket|blazer|sweater|pants|jeans|skirt|shorts|shoes|sneakers|boots|heels|loafers|watch|bag|belt|scarf|jewelry|sunglasses|hat", "name": "specific item, e.g. 'Slim navy chinos'", "color_hex": "#334466"}
+        {"type": "shirt|tshirt|blouse|dress|jacket|blazer|sweater|pants|jeans|skirt|shorts|shoes|sneakers|boots|heels|loafers|watch|bag|belt|scarf|jewelry|sunglasses|hat", "name": "specific item with a real fabric/cut/color detail, e.g. 'Slim navy chinos'", "color_hex": "#334466"}
       ],
-      "why": "why this works for the occasion",
+      "why": "why this works, referencing at least two items by name",
       "tags": ["2-4 short style tags"],
       "budget": "casual|mid-range|premium",
-      "image_query": "a 4-6 word photo search phrase for this outfit, e.g. 'man smart casual navy blazer street style'"
+      "image_query": "a 4-6 word photo search phrase for this outfit"
     }
   ]
 }
@@ -56,7 +76,6 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 async function callGemini(history, userContent, photo) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-  // Gemini uses roles "user" and "model" (not "assistant").
   const img = parseDataUrl(photo);
   const userParts = [{ text: userContent }];
   if (img) userParts.push({ inline_data: { mime_type: img.mime, data: img.data } });
@@ -73,14 +92,14 @@ async function callGemini(history, userContent, photo) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-goog-api-key": process.env.GEMINI_API_KEY.trim(), // header auth works for both old (AIzaSy...) and new (AQ....) key formats
+      "x-goog-api-key": process.env.GEMINI_API_KEY.trim(),
     },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents,
       generationConfig: {
         maxOutputTokens: 8192,
-        responseMimeType: "application/json", // ask Gemini for pure JSON
+        responseMimeType: "application/json",
       },
     }),
   });
@@ -91,8 +110,7 @@ async function callGemini(history, userContent, photo) {
   }
 
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("\n") || "";
-  return text;
+  return data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("\n") || "";
 }
 
 /* ---------- Provider: Anthropic Claude (paid) ---------- */
@@ -109,7 +127,7 @@ async function callClaude(history, userContent, photo) {
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 1500,
+      max_tokens: 1800,
       system: SYSTEM_PROMPT,
       messages: [
         ...history,
@@ -141,16 +159,13 @@ async function callClaude(history, userContent, photo) {
     .join("\n");
 }
 
-/* ---------- JSON salvage ----------
-   LLM output is usually clean JSON, but can arrive with markdown fences,
-   preamble text, or trailing commas. Extract the outermost {...} and tidy it. */
+/* ---------- JSON salvage ---------- */
 
 function extractJson(text) {
   let t = (text || "").replace(/```json|```/g, "").trim();
   const start = t.indexOf("{");
   const end = t.lastIndexOf("}");
   if (start !== -1 && end > start) t = t.slice(start, end + 1);
-  // remove trailing commas before } or ] (common LLM glitch)
   t = t.replace(/,\s*([}\]])/g, "$1");
   return t;
 }
@@ -185,7 +200,6 @@ export async function getOutfits(params) {
   try {
     parsed = JSON.parse(clean);
   } catch {
-    // One retry: ask the same model to repair its own output into valid JSON.
     const repaired = await call(
       [],
       `Fix the following into valid JSON matching the intended structure. Respond with ONLY the JSON, nothing else:\n\n${clean}`
