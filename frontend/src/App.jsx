@@ -265,8 +265,24 @@ function getUserId() {
   return id;
 }
 
+// Real URLs for each view, so the browser's back/forward — and the mobile
+// back gesture, which uses the exact same mechanism — actually work.
+const VIEW_PATHS = { home: "/", chat: "/chat", trip: "/trip", lookbook: "/lookbook" };
+const PATH_VIEWS = { "/": "home", "/chat": "chat", "/trip": "trip", "/lookbook": "lookbook" };
+
 export default function App() {
-  const [view, setView] = useState("home"); // home | chat | trip | lookbook
+  const [view, setView] = useState(() => PATH_VIEWS[window.location.pathname] || "home");
+
+  // The only place that should ever change views from a click/tap. Pushes a
+  // real browser history entry — but only when the view actually changes, so
+  // sending several chat messages in a row doesn't spam the back button with
+  // duplicate stops.
+  const navigate = (nextView) => {
+    if (nextView !== view) {
+      window.history.pushState({ view: nextView }, "", VIEW_PATHS[nextView] || "/");
+    }
+    setView(nextView);
+  };
   const [dark, setDark] = useState(false);
   const P = PALETTES[dark ? "dark" : "light"];
   const [gender, setGender] = useState("Neutral");
@@ -338,6 +354,19 @@ export default function App() {
 
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, loading]);
+
+  // Make sure the very first history entry carries the right state (so a
+  // single back-press from a fresh load behaves the same as any other), then
+  // keep view in sync whenever the browser's back/forward — or the mobile
+  // back gesture, which is the same mechanism — is used.
+  useEffect(() => {
+    window.history.replaceState({ view }, "", VIEW_PATHS[view] || "/");
+    const onPopState = (event) => {
+      setView(event.state?.view || PATH_VIEWS[window.location.pathname] || "home");
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   // Restore an existing session on load, and stay in sync with login/logout.
   // sessionChecked only flips true once — it stops the very first load from
@@ -469,7 +498,7 @@ export default function App() {
   const send = async (text) => {
     const msg = text.trim();
     if (!msg || loading) return;
-    setView("chat");
+    navigate("chat");
     setError(null);
     setInput("");
     setChat((c) => [...c, { role: "user", text: msg }]);
@@ -636,7 +665,7 @@ export default function App() {
         background: T.paper, borderBottom: `1px solid ${T.line}`, padding: "16px clamp(20px, 5vw, 48px)",
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, position: "sticky", top: 0, zIndex: 5,
       }}>
-        <div onClick={() => setView("home")} style={{ cursor: "pointer", display: "flex", alignItems: "baseline", gap: 12 }}>
+        <div onClick={() => navigate("home")} style={{ cursor: "pointer", display: "flex", alignItems: "baseline", gap: 12 }}>
           <span style={{ fontFamily: display, fontWeight: 600, fontSize: 25, letterSpacing: "0.12em" }}>OOTD</span>
           <span className="eyebrow tagline">Your AI stylist</span>
         </div>
@@ -644,15 +673,15 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <nav className={`mainnav${menuOpen ? " open" : ""}`}>
             <button className={view === "home" || view === "chat" ? "navlink navlink--on" : "navlink"}
-              onClick={() => { setView(chat.length ? "chat" : "home"); setMenuOpen(false); }}>
+              onClick={() => { navigate(chat.length ? "chat" : "home"); setMenuOpen(false); }}>
               Stylist
             </button>
             <button className={view === "trip" ? "navlink navlink--on" : "navlink"}
-              onClick={() => { setView("trip"); setMenuOpen(false); }}>
+              onClick={() => { navigate("trip"); setMenuOpen(false); }}>
               Trip Planner
             </button>
             <button className={view === "lookbook" ? "navlink navlink--on" : "navlink"}
-              onClick={() => { setView("lookbook"); setMenuOpen(false); }}>
+              onClick={() => { navigate("lookbook"); setMenuOpen(false); }}>
               Lookbook{saved.length ? ` (${saved.length})` : ""}
             </button>
           </nav>
