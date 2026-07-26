@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
-  requestOutfits, fetchLookbook, saveToLookbook, removeFromLookbook, fetchWardrobe, saveWardrobe,
+  requestOutfits, fetchLookbook, saveToLookbook, removeFromLookbook, fetchWardrobe, saveWardrobe, requestCapsule,
 } from "./api.js";
 import { shareOrDownloadOutfit } from "./shareCard.js";
 
@@ -107,7 +107,7 @@ function SwatchStrip({ items }) {
   );
 }
 
-function OutfitCard({ outfit, index, saved, onSave }) {
+function OutfitCard({ outfit, index, saved, onSave, kicker = "Look" }) {
   const [sharing, setSharing] = useState(false);
   const [shareMsg, setShareMsg] = useState(null);
 
@@ -128,7 +128,7 @@ function OutfitCard({ outfit, index, saved, onSave }) {
     <article className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <span className="eyebrow" style={{ color: T.violet }}>
-          Look {String((index ?? 0) + 1).padStart(2, "0")}
+          {kicker} {String((index ?? 0) + 1).padStart(2, "0")}
         </span>
         <span className="eyebrow">{outfit.budget}</span>
       </header>
@@ -207,6 +207,49 @@ function OutfitCard({ outfit, index, saved, onSave }) {
   );
 }
 
+// The capsule wardrobe's shared pieces, shown once above the day-by-day cards.
+function CapsuleOverview({ pieces }) {
+  return (
+    <div className="card" style={{ marginBottom: 22 }}>
+      <div className="eyebrow" style={{ color: T.violet, marginBottom: 12 }}>
+        Your capsule — {pieces.length} piece{pieces.length === 1 ? "" : "s"}, mix and match all trip
+      </div>
+      <SwatchStrip items={pieces} />
+      <ul style={{
+        listStyle: "none", margin: "16px 0 0", padding: 0,
+        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8,
+      }}>
+        {pieces.map((p, i) => (
+          <li key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+            <span style={{
+              width: 12, height: 12, borderRadius: "50%", background: p.color_hex,
+              border: "1px solid rgba(0,0,0,0.15)", flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 14 }}>{iconFor(p.type)}</span>
+            <span>{p.name}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// Turns one capsule day into an outfit-shaped object, so it can be rendered
+// with the exact same OutfitCard used everywhere else — Save and Share just work.
+function dayToOutfit(day, pieces) {
+  const items = (day.piece_ids || [])
+    .map((id) => pieces.find((p) => p.id === id))
+    .filter(Boolean);
+  return {
+    name: day.label || `Day ${day.day}`,
+    items,
+    why: day.why || "",
+    tags: [],
+    budget: "",
+    image: day.image,
+  };
+}
+
 // A stable anonymous identity for this browser, so the Lookbook and wardrobe
 // can sync to Supabase without requiring a login. Clearing site data or
 // switching browsers starts a fresh identity — real accounts are a later upgrade.
@@ -221,7 +264,7 @@ function getUserId() {
 }
 
 export default function App() {
-  const [view, setView] = useState("home"); // home | chat | lookbook
+  const [view, setView] = useState("home"); // home | chat | trip | lookbook
   const [dark, setDark] = useState(false);
   const P = PALETTES[dark ? "dark" : "light"];
   const [gender, setGender] = useState("Neutral");
@@ -241,6 +284,38 @@ export default function App() {
   const userId = useRef(getUserId()).current;
   const [dbConfigured, setDbConfigured] = useState(null); // null = not checked yet, then true/false
   const [syncError, setSyncError] = useState(null);
+
+  // Capsule wardrobe / trip planner state — reuses gender/budget/weather/wardrobe above.
+  const [tripDestination, setTripDestination] = useState("");
+  const [tripDays, setTripDays] = useState(4);
+  const [tripLuggage, setTripLuggage] = useState("Carry-on only");
+  const [tripHistory, setTripHistory] = useState([]);
+  const [tripResult, setTripResult] = useState(null); // { reply, pieces, days, weatherUsed }
+  const [tripLoading, setTripLoading] = useState(false);
+  const [tripError, setTripError] = useState(null);
+
+  const planTrip = async () => {
+    if (!tripDestination.trim() || tripLoading) return;
+    setTripError(null);
+    setTripLoading(true);
+    try {
+      const data = await requestCapsule({
+        destination: tripDestination.trim(),
+        days: tripDays,
+        luggage: tripLuggage,
+        gender, budget, weather, city: city.trim() || undefined,
+        wardrobe: wardrobe.trim() || undefined,
+        history: tripHistory,
+      });
+      setTripHistory(data.history || []);
+      setTripResult({ reply: data.reply, pieces: data.pieces, days: data.days, weatherUsed: data.weatherUsed });
+    } catch (e) {
+      setTripError(e.message || "Couldn't plan that trip. Try again.");
+    } finally {
+      setTripLoading(false);
+    }
+  };
+
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, loading]);
 
@@ -435,8 +510,11 @@ export default function App() {
           <span className="eyebrow tagline">Your AI stylist</span>
         </div>
         <nav className="mainnav" style={{ display: "flex", alignItems: "center" }}>
-          <button className={view !== "lookbook" ? "navlink navlink--on" : "navlink"} onClick={() => setView(chat.length ? "chat" : "home")}>
+          <button className={view === "home" || view === "chat" ? "navlink navlink--on" : "navlink"} onClick={() => setView(chat.length ? "chat" : "home")}>
             Stylist
+          </button>
+          <button className={view === "trip" ? "navlink navlink--on" : "navlink"} onClick={() => setView("trip")}>
+            Trip Planner
           </button>
           <button className={view === "lookbook" ? "navlink navlink--on" : "navlink"} onClick={() => setView("lookbook")}>
             Lookbook{saved.length ? ` (${saved.length})` : ""}
@@ -615,6 +693,91 @@ export default function App() {
               </div>
             </div>
           </div>
+        </main>
+      )}
+
+      {/* TRIP PLANNER — capsule wardrobe */}
+      {view === "trip" && (
+        <main style={{ maxWidth: 980, margin: "0 auto", padding: "44px clamp(16px, 4vw, 40px) 90px", textAlign: "center" }}>
+          <p className="eyebrow" style={{ margin: "0 0 10px" }}>Pack light, look different every day</p>
+          <h2 style={{ fontFamily: display, fontWeight: 400, fontSize: 38, margin: "0 0 26px" }}>Capsule Wardrobe Planner</h2>
+
+          <section className="panel" style={{ maxWidth: 640, margin: "0 auto 32px", textAlign: "left" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
+              <Field label="Destination">
+                <input
+                  value={tripDestination}
+                  onChange={(e) => setTripDestination(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && planTrip()}
+                  placeholder="e.g. Goa"
+                />
+              </Field>
+              <Field label="Days">
+                <input
+                  type="number"
+                  min={1}
+                  max={14}
+                  value={tripDays}
+                  onChange={(e) => setTripDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
+                />
+              </Field>
+              <Field label="Luggage">
+                <select value={tripLuggage} onChange={(e) => setTripLuggage(e.target.value)}>
+                  {["Carry-on only", "Backpack only", "Checked bag"].map((o) => <option key={o}>{o}</option>)}
+                </select>
+              </Field>
+            </div>
+            <p style={{ fontSize: 11.5, color: T.gray, margin: "10px 0 0" }}>
+              Uses your Style, Budget, Weather, and Wardrobe settings from the Stylist tab too.
+            </p>
+            <button className="cta" onClick={planTrip} disabled={tripLoading} style={{ marginTop: 16, borderRadius: 10, width: "100%" }}>
+              {tripLoading ? "Packing your capsule…" : "Plan my capsule"}
+            </button>
+          </section>
+
+          {tripError && (
+            <div role="alert" style={{
+              background: dark ? "#3A2026" : "#FBEBE9", border: `1px solid ${dark ? "#6E3440" : "#F0C7C1"}`,
+              color: dark ? "#F2A9B4" : "#8C2B2B", borderRadius: 10, padding: "10px 14px", fontSize: 13.5,
+              margin: "0 auto 20px", maxWidth: 640, textAlign: "left",
+            }}>
+              {tripError}
+            </div>
+          )}
+
+          {tripResult && (
+            <>
+              <p style={{
+                fontFamily: display, fontStyle: "italic", fontWeight: 450, fontSize: 18,
+                lineHeight: 1.5, margin: "0 auto 6px", maxWidth: 640,
+              }}>
+                {tripResult.reply}
+              </p>
+              {tripResult.weatherUsed && (
+                <p className="eyebrow" style={{ margin: "0 0 22px" }}>Packed for {tripResult.weatherUsed}</p>
+              )}
+
+              <div style={{ textAlign: "left" }}>
+                <CapsuleOverview pieces={tripResult.pieces} />
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 16 }}>
+                  {tripResult.days.map((d, i) => {
+                    const outfit = dayToOutfit(d, tripResult.pieces);
+                    return (
+                      <OutfitCard
+                        key={i}
+                        outfit={outfit}
+                        index={(d.day ?? i + 1) - 1}
+                        kicker="Day"
+                        saved={isSaved(outfit)}
+                        onSave={() => toggleSave(outfit)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </main>
       )}
 

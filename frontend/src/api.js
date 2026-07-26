@@ -59,3 +59,14 @@ export async function saveWardrobe(userId, wardrobe) {
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
+
+export async function requestCapsule(payload) {
+  const res = await fetch(`${BASE}/api/capsule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data; // { reply, pieces, days, weatherUsed, history }
+}

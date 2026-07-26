@@ -7,6 +7,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { getOutfits, activeProvider } from "./src/stylist.js";
+import { getCapsule } from "./src/capsule.js";
 import { attachImages } from "./src/images.js";
 import { getWeather } from "./src/weather.js";
 import {
@@ -142,6 +143,55 @@ app.post("/api/wardrobe", async (req, res) => {
   } catch (err) {
     console.error("wardrobe save error:", err.message);
     res.status(502).json({ error: "Couldn't save your wardrobe." });
+  }
+});
+
+/* ---------- Capsule wardrobe trip planner ---------- */
+
+app.post("/api/capsule", async (req, res) => {
+  try {
+    const { destination, days, luggage, gender, budget, weather, city, wardrobe, history } = req.body || {};
+
+    if (!destination || typeof destination !== "string" || !destination.trim()) {
+      return res.status(400).json({ error: "Field 'destination' is required." });
+    }
+    if (!activeProvider()) {
+      return res.status(500).json({ error: "No LLM key configured. Set GEMINI_API_KEY (free) or ANTHROPIC_API_KEY in backend/.env — see .env.example." });
+    }
+
+    const liveWeather = await getWeather(city);
+    const effectiveWeather = liveWeather || weather;
+    const safeDays = Math.max(1, Math.min(14, Number(days) || 3)); // sanity cap — no 300-day capsules
+
+    const result = await getCapsule({
+      destination: destination.trim().slice(0, 100),
+      days: safeDays,
+      luggage,
+      gender,
+      budget,
+      weather: effectiveWeather,
+      wardrobe: wardrobe?.slice(0, 1000),
+      history: Array.isArray(history) ? history.slice(-6) : [],
+    });
+
+    const daysWithImages = await attachImages(result.days || []);
+
+    const newHistory = [
+      ...(Array.isArray(history) ? history.slice(-6) : []),
+      { role: "user", content: result._userContent },
+      { role: "assistant", content: result._raw },
+    ];
+
+    res.json({
+      reply: result.reply,
+      pieces: result.pieces || [],
+      days: daysWithImages,
+      weatherUsed: effectiveWeather || null,
+      history: newHistory,
+    });
+  } catch (err) {
+    console.error("capsule error:", err.message);
+    res.status(502).json({ error: "The capsule planner couldn't process that request. Please try again." });
   }
 });
 
