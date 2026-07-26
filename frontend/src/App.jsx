@@ -284,6 +284,7 @@ export default function App() {
   const userId = useRef(getUserId()).current;
   const [dbConfigured, setDbConfigured] = useState(null); // null = not checked yet, then true/false
   const [syncError, setSyncError] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false); // mobile hamburger dropdown
 
   // Capsule wardrobe / trip planner state — reuses gender/budget/weather/wardrobe above.
   const [tripDestination, setTripDestination] = useState("");
@@ -482,12 +483,29 @@ export default function App() {
         .ootd .scroller::-webkit-scrollbar { display: none; }
         .ootd .scroller > * { flex: 0 0 auto; }
         .ootd .scroller .chip { white-space: nowrap; }
-        .ootd .mainnav { gap: 18px; }
+        .ootd .mainnav { display: flex; align-items: center; gap: 18px; }
+        .ootd .hamburger {
+          display: none; align-items: center; justify-content: center;
+          width: 38px; height: 38px; flex-shrink: 0; font-size: 15px;
+          background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+        }
+        .ootd .nav-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.15); z-index: 4; }
         @media (max-width: 640px) {
           .ootd .tagline { display: none; }
           .ootd .masthead { padding: 13px 16px; }
-          .ootd .mainnav { gap: 10px; }
-          .ootd .navlink { font-size: 12.5px; }
+          .ootd .mainnav {
+            display: none; flex-direction: column; align-items: stretch; gap: 2px;
+            position: absolute; top: 100%; left: 0; right: 0;
+            background: var(--paper); border-bottom: 1px solid var(--line);
+            padding: 6px 16px 12px; box-shadow: var(--shadow-lift);
+          }
+          .ootd .mainnav.open { display: flex; }
+          .ootd .mainnav .navlink {
+            width: 100%; text-align: left; padding: 12px 4px; font-size: 15px;
+            border-bottom: 1px solid var(--line);
+          }
+          .ootd .mainnav .navlink:last-child { border-bottom: none; }
+          .ootd .hamburger { display: flex; }
           .ootd .card { padding: 16px; }
         }
         @media (prefers-reduced-motion: reduce) {
@@ -509,22 +527,37 @@ export default function App() {
           <span style={{ fontFamily: display, fontWeight: 600, fontSize: 25, letterSpacing: "0.12em" }}>OOTD</span>
           <span className="eyebrow tagline">Your AI stylist</span>
         </div>
-        <nav className="mainnav" style={{ display: "flex", alignItems: "center" }}>
-          <button className={view === "home" || view === "chat" ? "navlink navlink--on" : "navlink"} onClick={() => setView(chat.length ? "chat" : "home")}>
-            Stylist
-          </button>
-          <button className={view === "trip" ? "navlink navlink--on" : "navlink"} onClick={() => setView("trip")}>
-            Trip Planner
-          </button>
-          <button className={view === "lookbook" ? "navlink navlink--on" : "navlink"} onClick={() => setView("lookbook")}>
-            Lookbook{saved.length ? ` (${saved.length})` : ""}
-          </button>
-          <button className="chip" onClick={() => setDark((d) => !d)} style={{ padding: "6px 10px" }}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <nav className={`mainnav${menuOpen ? " open" : ""}`}>
+            <button className={view === "home" || view === "chat" ? "navlink navlink--on" : "navlink"}
+              onClick={() => { setView(chat.length ? "chat" : "home"); setMenuOpen(false); }}>
+              Stylist
+            </button>
+            <button className={view === "trip" ? "navlink navlink--on" : "navlink"}
+              onClick={() => { setView("trip"); setMenuOpen(false); }}>
+              Trip Planner
+            </button>
+            <button className={view === "lookbook" ? "navlink navlink--on" : "navlink"}
+              onClick={() => { setView("lookbook"); setMenuOpen(false); }}>
+              Lookbook{saved.length ? ` (${saved.length})` : ""}
+            </button>
+          </nav>
+
+          {/* Frequent, quick toggles live here — always visible, never buried in the
+              hamburger. Login/account will join this group, not the collapsible nav. */}
+          <button className="chip" onClick={() => setDark((d) => !d)} style={{ padding: "6px 10px", flexShrink: 0 }}
             aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title={dark ? "Light mode" : "Dark mode"}>
             {dark ? "☀️" : "🌙"}
           </button>
-        </nav>
+
+          <button className="hamburger" onClick={() => setMenuOpen((o) => !o)}
+            aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen}>
+            {menuOpen ? "✕" : "☰"}
+          </button>
+        </div>
       </header>
+      {menuOpen && <div className="nav-overlay" onClick={() => setMenuOpen(false)} />}
 
       {/* HOME */}
       {view === "home" && (
@@ -783,7 +816,7 @@ export default function App() {
 
       {/* LOOKBOOK */}
       {view === "lookbook" && (
-        <main style={{ maxWidth: 980, margin: "0 auto", padding: "44px clamp(16px, 4vw, 40px) 90px" }}>
+        <main style={{ maxWidth: 980, margin: "0 auto", padding: "44px clamp(16px, 4vw, 40px) 90px", textAlign: "center" }}>
           <p className="eyebrow" style={{ margin: "0 0 10px" }}>Your saved looks</p>
           <h2 style={{ fontFamily: display, fontWeight: 400, fontSize: 38, margin: "0 0 10px" }}>My Lookbook</h2>
           <p style={{ fontSize: 12.5, color: syncError ? (dark ? "#F2A9B4" : "#8C2B2B") : T.gray, margin: "0 0 26px" }}>
@@ -794,15 +827,17 @@ export default function App() {
               : "Synced — these will still be here next time you visit."}
           </p>
           {saved.length === 0 ? (
-            <div style={{ background: T.paper, border: `1px dashed ${T.line}`, borderRadius: 10, padding: 48, textAlign: "center" }}>
+            <div style={{ background: T.paper, border: `1px dashed ${T.line}`, borderRadius: 10, padding: 48, textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
               <p style={{ fontFamily: display, fontStyle: "italic", fontSize: 18, margin: "0 0 6px" }}>Nothing on the rack yet.</p>
               <p style={{ color: T.gray, fontSize: 13.5, margin: 0 }}>Ask the stylist for looks, then save the ones you'd wear.</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 16 }}>
-              {saved.map((s, i) => (
-                <OutfitCard key={s.id ?? i} outfit={s.outfit} index={i} saved onSave={() => toggleSave(s.outfit)} />
-              ))}
+            <div style={{ textAlign: "left" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 16 }}>
+                {saved.map((s, i) => (
+                  <OutfitCard key={s.id ?? i} outfit={s.outfit} index={i} saved onSave={() => toggleSave(s.outfit)} />
+                ))}
+              </div>
             </div>
           )}
         </main>
