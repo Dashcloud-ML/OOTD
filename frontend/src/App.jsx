@@ -340,9 +340,19 @@ export default function App() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, loading]);
 
   // Restore an existing session on load, and stay in sync with login/logout.
+  // sessionChecked only flips true once — it stops the very first load from
+  // firing with the anonymous fallback before we've had a chance to find out
+  // whether a real session actually exists.
+  const [sessionChecked, setSessionChecked] = useState(false);
   useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    if (!supabase) {
+      setSessionChecked(true);
+      return;
+    }
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setSessionChecked(true);
+    });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
     });
@@ -351,17 +361,30 @@ export default function App() {
 
   // Load saved outfits + wardrobe for whichever identity is currently active.
   // Re-runs automatically when effectiveUserId changes (i.e. on login/logout).
+  //
+  // loadTicketRef guards against a real race: logging in can trigger this
+  // effect AND an explicit call from finishLogin (after migrating anonymous
+  // data) at nearly the same moment. Network responses don't always arrive in
+  // the order they were sent — mobile networks especially — so without this,
+  // a slower, earlier (sometimes pre-migration or pre-login) response could
+  // land last and silently overwrite the correct one. Each call stamps a
+  // ticket; a result only gets applied if no newer call has started since.
+  const loadTicketRef = useRef(0);
   const loadSavedData = async (uid, token) => {
+    const ticket = ++loadTicketRef.current;
     try {
       const { items, configured } = await fetchLookbook(uid, token);
+      if (loadTicketRef.current !== ticket) return; // a newer load has since started — discard
       setDbConfigured(configured);
       if (configured) setSaved(items.map((r) => ({ id: r.id, outfit: r.outfit })));
     } catch {
+      if (loadTicketRef.current !== ticket) return;
       setDbConfigured(false);
       setSyncError("Lookbook sync is offline right now — saves will only last this session.");
     }
     try {
       const { wardrobe: w, configured } = await fetchWardrobe(uid, token);
+      if (loadTicketRef.current !== ticket) return;
       if (configured) setWardrobe(w || "");
     } catch {
       // Wardrobe sync is a quiet nice-to-have — fail silently, keep typing locally.
@@ -369,8 +392,9 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!sessionChecked) return; // wait until we know the TRUE identity before loading anything
     loadSavedData(effectiveUserId, authToken);
-  }, [effectiveUserId]);
+  }, [effectiveUserId, sessionChecked]);
 
   const closeAuthModal = () => {
     setAuthModalOpen(false);
