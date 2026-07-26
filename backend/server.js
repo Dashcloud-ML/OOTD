@@ -12,8 +12,9 @@ import { attachImages } from "./src/images.js";
 import { getWeather } from "./src/weather.js";
 import {
   lookbookConfigured, listLookbook, addLookbookItem, removeLookbookItem,
-  getWardrobeProfile, saveWardrobeProfile,
+  getWardrobeProfile, saveWardrobeProfile, reassignUserData,
 } from "./src/db.js";
+import { resolveUserId, verifySupabaseToken } from "./src/auth.js";
 
 const app = express();
 app.use(cors()); // for production, restrict: cors({ origin: "https://your-frontend.vercel.app" })
@@ -82,7 +83,7 @@ app.post("/api/style", async (req, res) => {
 
 app.get("/api/lookbook", async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId } = await resolveUserId(req);
     if (!userId) return res.status(400).json({ error: "userId is required." });
     if (!lookbookConfigured()) return res.json({ items: [], configured: false });
     const items = await listLookbook(userId);
@@ -95,7 +96,8 @@ app.get("/api/lookbook", async (req, res) => {
 
 app.post("/api/lookbook", async (req, res) => {
   try {
-    const { userId, outfit } = req.body || {};
+    const { outfit } = req.body || {};
+    const { userId } = await resolveUserId(req);
     if (!userId || !outfit) return res.status(400).json({ error: "userId and outfit are required." });
     if (!lookbookConfigured()) return res.status(503).json({ error: "Lookbook sync isn't set up yet." });
     const item = await addLookbookItem(userId, outfit);
@@ -109,7 +111,7 @@ app.post("/api/lookbook", async (req, res) => {
 app.delete("/api/lookbook/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
+    const { userId } = await resolveUserId(req);
     if (!userId) return res.status(400).json({ error: "userId is required." });
     if (!lookbookConfigured()) return res.status(503).json({ error: "Lookbook sync isn't set up yet." });
     await removeLookbookItem(userId, id);
@@ -122,7 +124,7 @@ app.delete("/api/lookbook/:id", async (req, res) => {
 
 app.get("/api/wardrobe", async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId } = await resolveUserId(req);
     if (!userId) return res.status(400).json({ error: "userId is required." });
     if (!lookbookConfigured()) return res.json({ wardrobe: "", configured: false });
     const wardrobe = await getWardrobeProfile(userId);
@@ -135,7 +137,8 @@ app.get("/api/wardrobe", async (req, res) => {
 
 app.post("/api/wardrobe", async (req, res) => {
   try {
-    const { userId, wardrobe } = req.body || {};
+    const { wardrobe } = req.body || {};
+    const { userId } = await resolveUserId(req);
     if (!userId) return res.status(400).json({ error: "userId is required." });
     if (!lookbookConfigured()) return res.status(503).json({ error: "Wardrobe sync isn't set up yet." });
     await saveWardrobeProfile(userId, wardrobe || "");
@@ -143,6 +146,27 @@ app.post("/api/wardrobe", async (req, res) => {
   } catch (err) {
     console.error("wardrobe save error:", err.message);
     res.status(502).json({ error: "Couldn't save your wardrobe." });
+  }
+});
+
+/* ---------- Account login: migrate anonymous data on first sign-in ---------- */
+
+app.post("/api/claim-anonymous-data", async (req, res) => {
+  try {
+    const header = req.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+    const user = token && (await verifySupabaseToken(token));
+    if (!user) return res.status(401).json({ error: "Not logged in." });
+
+    const { anonymousUserId } = req.body || {};
+    if (!anonymousUserId) return res.status(400).json({ error: "anonymousUserId is required." });
+    if (!lookbookConfigured()) return res.status(503).json({ error: "Not configured." });
+
+    await reassignUserData(anonymousUserId, user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("claim-anonymous-data error:", err.message);
+    res.status(502).json({ error: "Couldn't migrate your saved data, but you're logged in fine." });
   }
 });
 

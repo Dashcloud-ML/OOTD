@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   requestOutfits, fetchLookbook, saveToLookbook, removeFromLookbook, fetchWardrobe, saveWardrobe, requestCapsule,
+  claimAnonymousData,
 } from "./api.js";
 import { shareOrDownloadOutfit } from "./shareCard.js";
+import { supabase } from "./supabaseClient.js";
 
 /* ─── OOTD — visual direction ───
    The fitting room, not a template: Fraunces serif with fashion character,
@@ -285,6 +287,23 @@ export default function App() {
   const [dbConfigured, setDbConfigured] = useState(null); // null = not checked yet, then true/false
   const [syncError, setSyncError] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false); // mobile hamburger dropdown
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false); // desktop/mobile account dropdown
+
+  // Account (entirely optional — anonymous mode keeps working without any of this).
+  const [session, setSession] = useState(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState("login"); // "login" | "signup"
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState(null);
+  const [authMessage, setAuthMessage] = useState(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Whichever identity is active right now — the real account once logged in,
+  // the anonymous browser id otherwise. Every Lookbook/wardrobe call uses this.
+  const effectiveUserId = session?.user?.id || userId;
+  const authToken = session?.access_token || null;
 
   // Capsule wardrobe / trip planner state — reuses gender/budget/weather/wardrobe above.
   const [tripDestination, setTripDestination] = useState("");
@@ -320,27 +339,97 @@ export default function App() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, loading]);
 
-  // Load any previously saved outfits and wardrobe once, on first mount.
+  // Restore an existing session on load, and stay in sync with login/logout.
   useEffect(() => {
-    (async () => {
-      try {
-        const { items, configured } = await fetchLookbook(userId);
-        setDbConfigured(configured);
-        if (configured) setSaved(items.map((r) => ({ id: r.id, outfit: r.outfit })));
-      } catch {
-        setDbConfigured(false);
-        setSyncError("Lookbook sync is offline right now — saves will only last this session.");
-      }
-    })();
-    (async () => {
-      try {
-        const { wardrobe: w, configured } = await fetchWardrobe(userId);
-        if (configured && w) setWardrobe(w);
-      } catch {
-        // Wardrobe sync is a quiet nice-to-have — fail silently, keep typing locally.
-      }
-    })();
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
   }, []);
+
+  // Load saved outfits + wardrobe for whichever identity is currently active.
+  // Re-runs automatically when effectiveUserId changes (i.e. on login/logout).
+  const loadSavedData = async (uid, token) => {
+    try {
+      const { items, configured } = await fetchLookbook(uid, token);
+      setDbConfigured(configured);
+      if (configured) setSaved(items.map((r) => ({ id: r.id, outfit: r.outfit })));
+    } catch {
+      setDbConfigured(false);
+      setSyncError("Lookbook sync is offline right now — saves will only last this session.");
+    }
+    try {
+      const { wardrobe: w, configured } = await fetchWardrobe(uid, token);
+      if (configured) setWardrobe(w || "");
+    } catch {
+      // Wardrobe sync is a quiet nice-to-have — fail silently, keep typing locally.
+    }
+  };
+
+  useEffect(() => {
+    loadSavedData(effectiveUserId, authToken);
+  }, [effectiveUserId]);
+
+  const closeAuthModal = () => {
+    setAuthModalOpen(false);
+    setAuthError(null);
+    setAuthMessage(null);
+  };
+
+  const finishLogin = async (newSession) => {
+    try {
+      // Best-effort: move any anonymously-saved looks onto the real account.
+      await claimAnonymousData(userId, newSession.access_token);
+    } catch {
+      // Login still succeeds even if migration fails — nothing is lost, just not merged yet.
+    }
+    await loadSavedData(newSession.user.id, newSession.access_token);
+    setAuthEmail("");
+    setAuthPassword("");
+    closeAuthModal();
+  };
+
+  const handleAuthSubmit = async () => {
+    if (!supabase) {
+      setAuthError("Login isn't set up yet on this deployment.");
+      return;
+    }
+    if (!authEmail.trim() || !authPassword) {
+      setAuthError("Enter both an email and a password.");
+      return;
+    }
+    setAuthError(null);
+    setAuthMessage(null);
+    setAuthLoading(true);
+    try {
+      if (authMode === "signup") {
+        const { data, error } = await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword });
+        if (error) throw error;
+        if (data.session) {
+          await finishLogin(data.session);
+        } else {
+          setAuthMessage("Check your email to confirm your account, then log in.");
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword });
+        if (error) throw error;
+        await finishLogin(data.session);
+      }
+    } catch (e) {
+      setAuthError(e.message || "Something went wrong. Try again.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setAuthEmail("");
+    setAuthPassword("");
+  };
 
   const onPhotoPicked = async (e) => {
     const file = e.target.files?.[0];
@@ -382,7 +471,7 @@ export default function App() {
       setSaved((s) => s.filter((x) => x !== existing)); // optimistic
       if (existing.id) {
         try {
-          await removeFromLookbook(userId, existing.id);
+          await removeFromLookbook(effectiveUserId, existing.id, authToken);
         } catch {
           setSyncError("Couldn't sync that removal — it may reappear next visit.");
         }
@@ -391,7 +480,7 @@ export default function App() {
       const temp = { id: null, outfit };
       setSaved((s) => [...s, temp]); // optimistic
       try {
-        const { item } = await saveToLookbook(userId, outfit);
+        const { item } = await saveToLookbook(effectiveUserId, outfit, authToken);
         setSaved((s) => s.map((x) => (x === temp ? { id: item.id, outfit: item.outfit } : x)));
       } catch {
         setSyncError("Lookbook sync is offline — this save will only last this session.");
@@ -544,12 +633,36 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Frequent, quick toggles live here — always visible, never buried in the
-              hamburger. Login/account will join this group, not the collapsible nav. */}
+          {/* Frequent, quick toggles live here — always visible, never buried in the hamburger. */}
           <button className="chip" onClick={() => setDark((d) => !d)} style={{ padding: "6px 10px", flexShrink: 0 }}
             aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title={dark ? "Light mode" : "Dark mode"}>
             {dark ? "☀️" : "🌙"}
           </button>
+
+          {session ? (
+            <div style={{ position: "relative" }}>
+              <button className="chip" onClick={() => setAccountMenuOpen((o) => !o)} title={session.user?.email || ""} style={{ flexShrink: 0 }}>
+                {(session.user?.email || "Account").split("@")[0]} ▾
+              </button>
+              {accountMenuOpen && (
+                <>
+                  <div onClick={() => setAccountMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 15 }} />
+                  <div className="card" style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 16, minWidth: 190, padding: 14 }}>
+                    <p style={{ fontSize: 12, color: T.gray, margin: "0 0 12px", wordBreak: "break-all" }}>
+                      {session.user?.email}
+                    </p>
+                    <button className="chip" onClick={() => { setAccountMenuOpen(false); handleLogout(); }} style={{ width: "100%" }}>
+                      Log out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <button className="chip" onClick={() => setAuthModalOpen(true)} style={{ flexShrink: 0 }}>
+              Log in
+            </button>
+          )}
 
           <button className="hamburger" onClick={() => setMenuOpen((o) => !o)}
             aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen}>
@@ -557,6 +670,81 @@ export default function App() {
           </button>
         </div>
       </header>
+      {authModalOpen && <div className="nav-overlay" onClick={closeAuthModal} style={{ zIndex: 30 }} />}
+      {authModalOpen && (
+        <div style={{
+          position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+          zIndex: 31, width: "min(380px, calc(100vw - 40px))", maxHeight: "calc(100vh - 40px)",
+        }}>
+        <div className="card" style={{ maxHeight: "inherit", overflowY: "auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18 }}>
+            <h3 style={{ fontFamily: display, fontWeight: 500, fontStyle: "italic", fontSize: 24, margin: 0 }}>
+              {authMode === "login" ? "Welcome back" : "Create your account"}
+            </h3>
+            <button onClick={closeAuthModal} aria-label="Close"
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: T.gray, lineHeight: 1 }}>
+              ✕
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Field label="Email">
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
+            </Field>
+            <Field label="Password">
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAuthSubmit()}
+                  placeholder={authMode === "signup" ? "At least 6 characters" : "••••••••"}
+                  autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                  style={{ width: "100%", paddingRight: 38 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  style={{
+                    position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer", fontSize: 15,
+                    color: T.gray, padding: 4, lineHeight: 1,
+                  }}
+                >
+                  {showPassword ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </Field>
+          </div>
+
+          {authError && (
+            <p style={{ fontSize: 13, color: dark ? "#F2A9B4" : "#8C2B2B", margin: "12px 0 0" }}>{authError}</p>
+          )}
+          {authMessage && (
+            <p style={{ fontSize: 13, color: T.violet, margin: "12px 0 0" }}>{authMessage}</p>
+          )}
+
+          <button className="cta" onClick={handleAuthSubmit} disabled={authLoading}
+            style={{ width: "100%", marginTop: 18, borderRadius: 10 }}>
+            {authLoading ? "One moment…" : authMode === "login" ? "Log in" : "Sign up"}
+          </button>
+
+          <button
+            onClick={() => { setAuthMode((m) => (m === "login" ? "signup" : "login")); setAuthError(null); setAuthMessage(null); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: T.gray, fontSize: 13, marginTop: 14, textAlign: "center", width: "100%" }}
+          >
+            {authMode === "login" ? "Need an account? Sign up" : "Already have an account? Log in"}
+          </button>
+        </div>
+        </div>
+      )}
       {menuOpen && <div className="nav-overlay" onClick={() => setMenuOpen(false)} />}
 
       {/* HOME */}
@@ -634,7 +822,7 @@ export default function App() {
               <textarea
                 value={wardrobe}
                 onChange={(e) => setWardrobe(e.target.value)}
-                onBlur={() => saveWardrobe(userId, wardrobe).catch(() => {})}
+                onBlur={() => saveWardrobe(effectiveUserId, wardrobe, authToken).catch(() => {})}
                 placeholder="e.g. blue denim jacket, white sneakers, black jeans, grey hoodie…"
                 rows={3}
                 style={{ width: "100%", marginTop: 10 }}

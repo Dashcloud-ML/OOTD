@@ -15,17 +15,20 @@ export async function requestOutfits(payload) {
   return data; // { reply, outfits, weatherUsed, history }
 }
 
-export async function fetchLookbook(userId) {
-  const res = await fetch(`${BASE}/api/lookbook?userId=${encodeURIComponent(userId)}`);
+export async function fetchLookbook(userId, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${BASE}/api/lookbook?userId=${encodeURIComponent(userId)}`, { headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data; // { items, configured }
 }
 
-export async function saveToLookbook(userId, outfit) {
+export async function saveToLookbook(userId, outfit, token) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${BASE}/api/lookbook`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ userId, outfit }),
   });
   const data = await res.json().catch(() => ({}));
@@ -33,27 +36,43 @@ export async function saveToLookbook(userId, outfit) {
   return data; // { item }
 }
 
-export async function removeFromLookbook(userId, id) {
+export async function removeFromLookbook(userId, id, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(`${BASE}/api/lookbook/${encodeURIComponent(id)}?userId=${encodeURIComponent(userId)}`, {
     method: "DELETE",
+    headers,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
 
-export async function fetchWardrobe(userId) {
-  const res = await fetch(`${BASE}/api/wardrobe?userId=${encodeURIComponent(userId)}`);
+export async function fetchWardrobe(userId, token) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const res = await fetch(`${BASE}/api/wardrobe?userId=${encodeURIComponent(userId)}`, { headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data; // { wardrobe, configured }
 }
 
-export async function saveWardrobe(userId, wardrobe) {
+export async function saveWardrobe(userId, wardrobe, token) {
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(`${BASE}/api/wardrobe`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ userId, wardrobe }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+export async function claimAnonymousData(anonymousUserId, token) {
+  const res = await fetch(`${BASE}/api/claim-anonymous-data`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ anonymousUserId }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);

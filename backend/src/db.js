@@ -75,3 +75,33 @@ export async function saveWardrobeProfile(userId, wardrobe) {
     body: JSON.stringify({ user_id: userId, wardrobe, updated_at: new Date().toISOString() }),
   });
 }
+
+/* ---------- Migrating anonymous data onto a real account ---------- */
+
+/**
+ * On first login/signup, move any Lookbook saves and wardrobe text from the
+ * browser's anonymous id onto the real, authenticated account.
+ */
+export async function reassignUserData(fromUserId, toUserId) {
+  if (!fromUserId || !toUserId || fromUserId === toUserId) return;
+
+  // Lookbook rows have no uniqueness constraint on user_id — safe to move in bulk.
+  await pgrest(`lookbook?user_id=eq.${encodeURIComponent(fromUserId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ user_id: toUserId }),
+  });
+
+  // profiles.user_id is a PRIMARY KEY, so we can only move the anonymous
+  // wardrobe over if the real account doesn't already have one of its own.
+  try {
+    const existing = await pgrest(`profiles?user_id=eq.${encodeURIComponent(toUserId)}&select=user_id`);
+    if (!existing || existing.length === 0) {
+      await pgrest(`profiles?user_id=eq.${encodeURIComponent(fromUserId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ user_id: toUserId }),
+      });
+    }
+  } catch {
+    // Non-critical — login still succeeds even if the wardrobe text doesn't migrate.
+  }
+}
