@@ -126,6 +126,3 @@ Both platforms auto-redeploy on every push to `main`.
 
 Real affiliate revenue, push notifications, group styling for coordinated events, an account settings page, and a CI pipeline are the natural next steps whenever there's time for them.
 
-## License
-
-MIT — do whatever you'd like with this.
