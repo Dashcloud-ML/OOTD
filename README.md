@@ -1,91 +1,128 @@
 # OOTD — AI Outfit Stylist 👗✨
 
-Never wonder what to wear again. Tell OOTD where you're going ("I'm going on a first date tonight") and get three complete outfit suggestions with images, item-by-item breakdowns, and a stylist's explanation of why each look works.
+**Never wonder what to wear again.** Tell OOTD where you're going — a first date, a job interview, a wedding — and it designs three complete, distinct outfits with an itemized breakdown, styling rationale, and shopping links, tuned to your style, your budget, and the actual weather.
 
-## Features
+🔗 **Live:** https://ootd-rose.vercel.app
+💻 **Source:** this repo
 
-- **Chat-style AI stylist** powered by Claude — natural language in, structured outfits out
-- **Refinement conversation** — "less formal", "cheaper", "different colors" (remembers context)
-- **Real outfit photos** from Unsplash, with a color-swatch flat-lay fallback
-- **Weather-aware** — enter a city for live weather (OpenWeatherMap), or use the manual dropdown
-- **Wardrobe mode** — list what you own; OOTD styles only from those pieces
-- **Budget & style filters** — Casual / Mid-range / Premium, Men / Women / Neutral
-- **Lookbook** — save favorite outfits (session-only for now; see Roadmap)
+---
+
+## What it does
+
+- **Conversational AI stylist** — describe an occasion in plain language, get 3 genuinely different outfits back, each with a "why this works" note. Ask for refinements ("less formal," "cheaper," "bolder") and it adjusts the existing looks rather than starting over.
+- **Photo-based personalization** — attach a selfie and the stylist tailors color and style choices to your coloring, build, and vibe.
+- **Live weather awareness** — enter a city and real weather data (via OpenWeatherMap) shapes fabric and layering choices, not just a static season guess.
+- **Wardrobe mode** — list clothes you already own and OOTD builds outfits only from those, plus basics anyone owns.
+- **Capsule wardrobe / trip planner** — give it a destination, trip length, and luggage constraint, and it designs a small shared set of pieces (not three unrelated outfits) that mix and match into a different look every day.
+- **Shopping links** — every item links out to an Amazon.in / Myntra / Flipkart search.
+- **Shareable story cards** — export any outfit as an Instagram-story-shaped image, rendered entirely in-browser via Canvas, with a native share sheet on mobile.
+- **Real accounts** — email/password login via Supabase Auth. Fully optional: anonymous mode works exactly the same, and logging in later migrates anything you saved anonymously onto your new account automatically.
+- **Persistent, cross-device Lookbook** — save outfits, and they're there next time, on any device, once logged in.
+- **Installable PWA** — custom app icon, works offline for static assets, "Add to Home Screen" on both iOS and Android.
+- **Dark mode**, a locked editorial visual design (Bodoni Moda + Outfit, one violet accent), and proper URL-based routing so the browser back button and mobile back gesture behave the way they should on any real website.
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Frontend | React + Vite, deployed on Vercel |
+| Backend | Node.js + Express, deployed on Render |
+| AI | Google Gemini (free tier) — provider-agnostic, Claude also supported |
+| Database & Auth | Supabase (Postgres + Auth) |
+| Images | Unsplash API |
+| Weather | OpenWeatherMap API |
+
+The AI layer is intentionally provider-agnostic: `backend/src/stylist.js` auto-detects whether `GEMINI_API_KEY` or `ANTHROPIC_API_KEY` is set and calls whichever is present, with identical behavior either way.
 
 ## Project structure
 
 ```
 ootd/
-├── backend/            Express API server
-│   ├── server.js       POST /api/style endpoint
-│   ├── src/stylist.js  Claude prompt + JSON parsing (the brain)
-│   ├── src/images.js   Unsplash photo search
-│   ├── src/weather.js  OpenWeatherMap lookup
-│   └── .env.example    API key template
-└── frontend/           React app (Vite)
-    └── src/
-        ├── App.jsx     Full UI: landing, chat, outfit cards, lookbook
-        └── api.js      Backend client
+├── backend/
+│   ├── server.js              Express app — all API routes
+│   ├── src/
+│   │   ├── stylist.js         Outfit generation (Gemini/Claude, dual-provider)
+│   │   ├── capsule.js         Trip planner / capsule wardrobe generation
+│   │   ├── images.js          Unsplash photo matching, with broader-query fallback
+│   │   ├── weather.js         Live weather lookup
+│   │   ├── db.js              Supabase persistence (Lookbook, wardrobe, migration)
+│   │   └── auth.js            Supabase Auth token verification
+│   ├── supabase-schema.sql    Run once in Supabase's SQL editor
+│   └── .env.example
+└── frontend/
+    ├── src/
+    │   ├── App.jsx             Entire UI — stylist, trip planner, lookbook, auth
+    │   ├── api.js               Backend client
+    │   ├── shareCard.js         Canvas-based shareable story card generator
+    │   └── supabaseClient.js   Browser Supabase Auth client
+    ├── public/
+    │   ├── manifest.json, sw.js, icons/   PWA assets
+    ├── vercel.json              SPA routing rewrite + service worker cache headers
+    └── .env.example
 ```
 
 ## Setup
 
-You need Node.js 18+ (for built-in `fetch`).
+Requires Node.js 18+.
 
-### 1. Backend
+### Backend
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
-# edit .env and paste your ANTHROPIC_API_KEY (required)
-# UNSPLASH_ACCESS_KEY and OPENWEATHER_API_KEY are optional but recommended
-npm run dev
 ```
 
-The API runs on http://localhost:3001 — check http://localhost:3001/api/health
-
-Test it directly:
+Fill in `.env`:
+- `GEMINI_API_KEY` — free, from [aistudio.google.com](https://aistudio.google.com)
+- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — from your Supabase project settings (the **service_role** secret key — backend only, never expose it)
+- `UNSPLASH_ACCESS_KEY`, `OPENWEATHER_API_KEY` — both optional, both free
 
 ```bash
-curl -X POST http://localhost:3001/api/style \
-  -H "Content-Type: application/json" \
-  -d '{"message":"I have a first date at a café tonight","gender":"Men","budget":"Mid-range","weather":"Mild"}'
+npm run dev
 ```
+Confirm it's alive: `http://localhost:3001/api/health` should show `{"ok":true,"provider":"gemini","db":true}`.
 
-### 2. Frontend
-
-In a second terminal:
+### Frontend
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env
+```
+
+Fill in `.env`:
+- `VITE_API_URL` — `http://localhost:3001` locally, your deployed backend URL in production
+- `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` — the **anon/public** key this time, safe for the browser (protected by Row Level Security, not secrecy — never confuse this with the backend's service_role key)
+
+```bash
 npm run dev
 ```
 
-Open http://localhost:5173 — the dev server proxies `/api` calls to the backend automatically.
+### Database
+
+Run `backend/supabase-schema.sql` once in your Supabase project's SQL editor to create the `lookbook` and `profiles` tables.
 
 ## Deployment
 
-**Backend → Render/Railway:** create a new web service from the `backend` folder, set the environment variables from `.env`, start command `npm start`.
+- **Backend → Render.** Root directory `backend`, build `npm install`, start `npm start`. Add all four backend env vars in Render's Environment tab.
+- **Frontend → Vercel.** Root directory `frontend`, framework auto-detects as Vite. Add the three frontend env vars in Vercel's Environment Variables. `vercel.json` handles SPA routing and service worker cache headers automatically.
 
-**Frontend → Vercel/Netlify:** deploy the `frontend` folder, and set one environment variable:
+Both platforms auto-redeploy on every push to `main`.
 
-```
-VITE_API_URL=https://your-backend.onrender.com
-```
+**Free-tier quirk worth knowing:** Render sleeps after ~15 minutes of inactivity (first request after a lull takes 30-60s to wake up), and Supabase free projects pause after about a week of no activity. A free uptime pinger (e.g. UptimeRobot) hitting the backend every 10-14 minutes avoids the Render sleep entirely.
 
-Then in `backend/server.js`, tighten CORS to your frontend URL (see the comment on the `cors()` line).
+## Honest limitations
 
-## Security notes
-
-- API keys live **only** in `backend/.env` — never in frontend code, never committed to git. Add `.env` to `.gitignore`.
-- The backend caps message length and conversation history to keep costs bounded.
+- Running on free-tier infrastructure — see the cold-start note above.
+- CORS is currently open to any origin, and there's no rate limiting yet — fine for a personal project, worth tightening before wider traffic.
+- Email confirmation is disabled for easier testing; no "forgot password" flow exists yet.
+- Outfit photos are stock images matched by AI-generated search terms, not real photos of the exact suggested items.
+- The Trip Planner is one-shot — no follow-up refinement chat like the main Stylist has.
+- Shopping links are generic searches, not tracked affiliate links (yet).
+- No automated tests, CI pipeline, or usage analytics.
 
 ## Roadmap
 
-- [ ] Persist Lookbook + Wardrobe with Supabase (anonymous user IDs first, accounts later)
-- [ ] Shareable outfit cards (render card to image, Web Share API)
-- [ ] Geolocation for automatic city detection
-- [ ] Shopping links per item (affiliate APIs)
-- [ ] Photo upload of your own clothes with AI recognition
+Real affiliate revenue, push notifications, group styling for coordinated events, an account settings page, and a CI pipeline are the natural next steps whenever there's time for them.
+
