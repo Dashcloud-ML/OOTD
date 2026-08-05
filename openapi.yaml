@@ -1,0 +1,300 @@
+openapi: 3.0.3
+info:
+  title: OOTD API
+  description: >
+    Backend REST API for OOTD — an AI outfit stylist. Generates outfit
+    suggestions, plans capsule wardrobes for trips, and persists a user's
+    Lookbook, wardrobe, and weekly outfit calendar via Supabase.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3001
+    description: Local development
+  - url: https://your-backend.onrender.com
+    description: Production
+
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Service status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string }
+                  provider: { type: string, enum: [gemini, claude], nullable: true }
+                  db: { type: boolean }
+
+  /api/style:
+    post:
+      summary: Generate outfit suggestions for an occasion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, description: "e.g. 'first date at a café tonight'" }
+                gender: { type: string, enum: [Men, Women, Neutral] }
+                budget: { type: string, enum: [Casual, Mid-range, Premium] }
+                weather: { type: string, enum: [Hot, Mild, Cold, Rainy] }
+                city: { type: string, description: "Optional — enables live weather" }
+                wardrobe: { type: string, description: "Optional — items the user owns, for wardrobe mode" }
+                photo: { type: string, description: "Optional — base64 data URL for personalization" }
+                history: { type: array, items: { type: object }, description: "Prior conversation turns, returned by a previous call" }
+      responses:
+        "200":
+          description: Three outfit suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StyleResponse"
+        "400": { description: Missing required field }
+        "502": { description: The AI stylist failed to produce a valid response }
+
+  /api/capsule:
+    post:
+      summary: Plan a capsule wardrobe for a multi-day trip
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination]
+              properties:
+                destination: { type: string }
+                days: { type: integer, minimum: 1, maximum: 14 }
+                luggage: { type: string, enum: ["Carry-on only", "Backpack only", "Checked bag"] }
+                gender: { type: string }
+                budget: { type: string }
+                weather: { type: string }
+                city: { type: string }
+                wardrobe: { type: string }
+                history: { type: array, items: { type: object } }
+      responses:
+        "200":
+          description: A shared set of pieces plus one outfit per day
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply: { type: string }
+                  pieces: { type: array, items: { $ref: "#/components/schemas/Item" } }
+                  days: { type: array, items: { $ref: "#/components/schemas/CapsuleDay" } }
+                  weatherUsed: { type: string, nullable: true }
+                  history: { type: array, items: { type: object } }
+
+  /api/lookbook:
+    get:
+      summary: List a user's saved outfits
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/AuthHeader"
+      responses:
+        "200":
+          description: Saved outfits
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        outfit: { $ref: "#/components/schemas/Outfit" }
+                        created_at: { type: string, format: date-time }
+                  configured: { type: boolean }
+    post:
+      summary: Save an outfit to the Lookbook
+      parameters:
+        - $ref: "#/components/parameters/AuthHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, outfit]
+              properties:
+                userId: { type: string }
+                outfit: { $ref: "#/components/schemas/Outfit" }
+      responses:
+        "200": { description: Saved successfully }
+
+  /api/lookbook/{id}:
+    delete:
+      summary: Remove a saved outfit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/AuthHeader"
+      responses:
+        "200": { description: Removed successfully }
+
+  /api/wardrobe:
+    get:
+      summary: Get the user's saved "items I own" text
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/AuthHeader"
+      responses:
+        "200":
+          description: Wardrobe text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wardrobe: { type: string }
+                  configured: { type: boolean }
+    post:
+      summary: Save the user's wardrobe text
+      parameters:
+        - $ref: "#/components/parameters/AuthHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string }
+                wardrobe: { type: string }
+      responses:
+        "200": { description: Saved successfully }
+
+  /api/calendar:
+    get:
+      summary: Get the user's weekly outfit plan
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - $ref: "#/components/parameters/AuthHeader"
+      responses:
+        "200":
+          description: Weekly plan, keyed by lowercase day name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  calendar:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        occasion: { type: string }
+                        outfit: { $ref: "#/components/schemas/Outfit" }
+                  configured: { type: boolean }
+    post:
+      summary: Save the user's weekly outfit plan
+      parameters:
+        - $ref: "#/components/parameters/AuthHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string }
+                calendar: { type: object }
+      responses:
+        "200": { description: Saved successfully }
+
+  /api/claim-anonymous-data:
+    post:
+      summary: Migrate anonymous Lookbook/wardrobe/calendar data onto a real account after login
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [anonymousUserId]
+              properties:
+                anonymousUserId: { type: string }
+      responses:
+        "200": { description: Migrated successfully }
+        "401": { description: Missing or invalid auth token }
+
+components:
+  parameters:
+    UserId:
+      name: userId
+      in: query
+      required: true
+      schema: { type: string }
+      description: Anonymous browser id — ignored if a valid Bearer token is also supplied
+    AuthHeader:
+      name: Authorization
+      in: header
+      required: false
+      schema: { type: string }
+      description: "Bearer <supabase_access_token> — if present and valid, overrides userId with the real logged-in account"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Supabase JWT
+
+  schemas:
+    Item:
+      type: object
+      properties:
+        type: { type: string, example: "shirt" }
+        name: { type: string, example: "Sage green linen popover shirt" }
+        color_hex: { type: string, example: "#8C9B7E" }
+
+    Outfit:
+      type: object
+      properties:
+        name: { type: string }
+        items: { type: array, items: { $ref: "#/components/schemas/Item" } }
+        why: { type: string }
+        tags: { type: array, items: { type: string } }
+        budget: { type: string }
+        image_query: { type: string }
+        image:
+          type: object
+          nullable: true
+          properties:
+            url: { type: string }
+            alt: { type: string }
+            credit: { type: string }
+            creditLink: { type: string }
+
+    CapsuleDay:
+      type: object
+      properties:
+        day: { type: integer }
+        label: { type: string }
+        piece_ids: { type: array, items: { type: string } }
+        why: { type: string }
+        image_query: { type: string }
+
+    StyleResponse:
+      type: object
+      properties:
+        reply: { type: string }
+        outfits: { type: array, items: { $ref: "#/components/schemas/Outfit" } }
+        weatherUsed: { type: string, nullable: true }
+        history: { type: array, items: { type: object } }
